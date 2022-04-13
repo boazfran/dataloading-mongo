@@ -37,14 +37,13 @@ RUN mv composer.phar /usr/local/bin/composer
 
 # switch to user
 USER ${uid}:${gid}
-RUN cd ~
-RUN composer require mongodb/mongodb
-
-# add this folder to the Docker image
-COPY . ~/app
-
-#RUN mkdir ~/config /app/config
-RUN ln -s ~/config/AIRR-iReceptorMapping.txt /app/config/AIRR-iReceptorMapping.txt
-
 # set working directory
 WORKDIR /home/appuser
+
+RUN cd ~
+RUN mkdir ~/app ~/config ~/app/config
+RUN composer require mongodb/mongodb
+# add this folder to the Docker image
+COPY . ~/app
+RUN ln -s ~/config/AIRR-iReceptorMapping.txt ~/app/config/AIRR-iReceptorMapping.txt
+
