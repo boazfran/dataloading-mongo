@@ -1,17 +1,7 @@
-FROM registry.access.redhat.com/ubi8/ubi:8.5-236.1648460182
-
-# install python modules
-COPY requirements.txt /
-#RUN pip install -r /requirements.txt
+FROM registry.access.redhat.com/ubi8/ubi
 
 # switch for root user for the installations
 USER root
-ARG user=appuser
-ARG group=appuser
-ARG uid=1000
-ARG gid=1000
-RUN groupadd -g ${gid} ${group}
-RUN useradd -u ${uid} -g ${group} -s /bin/sh -m ${user} # <--- the '-m' create a user home directory
 
 RUN yum -y update
 # install the python packages
@@ -25,25 +15,45 @@ RUN INSTALL_PKGS="python36 python36-devel python3-virtualenv python3-setuptools 
     # Remove redhat-logos-httpd (httpd dependency) to keep image size smaller.
     rpm -e --nodeps redhat-logos-httpd && \
     yum -y clean all --enablerepo='*'
+
 # install the python dependecies
-RUN pip3.6 install -r /requirements.txt
-# install the php dependencies 
-RUN yum -y install php php-devel php-pear php-json && yum -y clean all
+COPY requirements.txt /.
+RUN python3.6 -m pip install -r /requirements.txt
+
+# install the php packages 
+RUN INSTALL_PKGS="php php-devel php-pear php-json" && \
+    yum -y install $INSTALL_PKGS && \
+    rpm -V $INSTALL_PKGS && \
+    yum -y clean all --enablerepo='*'
+
+# instal the php dependencies
 RUN pecl install mongodb
 RUN php -v
 RUN echo "extension=mongodb.so" >> /etc/php.ini
 RUN curl -sS https://getcomposer.org/installer |php
 RUN mv composer.phar /usr/local/bin/composer
-
-# switch to user
-USER ${uid}:${gid}
-# set working directory
-WORKDIR /home/appuser
-
-RUN cd ~
-RUN mkdir ~/app ~/config ~/app/config
 RUN composer require mongodb/mongodb
+
+# create working directory
+RUN mkdir --p /app/config
+
 # add this folder to the Docker image
-COPY . ~/app
-RUN ln -s ~/config/AIRR-iReceptorMapping.txt ~/app/config/AIRR-iReceptorMapping.txt
+COPY . /app/. 
+
+# add mapping file
+RUN mkdir /config
+ADD https://raw.githubusercontent.com/sfu-ireceptor/config/master/AIRR-iReceptorMapping.txt /config/
+RUN ln -s /config/AIRR-iReceptorMapping.txt /app/config/AIRR-iReceptorMapping.txt
+RUN chmod 644 /app/config/AIRR-iReceptorMapping.txt
+
+# change ownership of working directory to the non-root user
+RUN chown -R 1001 /app
+RUN chown -R 1001 /config
+RUN mkdir /appuser && chown -R 1001 /appuser
+
+# switch to non-root user
+USER 1001
+
+# set working directory
+WORKDIR /appuser
 
