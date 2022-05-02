@@ -46,14 +46,15 @@ ADD https://raw.githubusercontent.com/sfu-ireceptor/config/master/AIRR-iReceptor
 RUN ln -s /config/AIRR-iReceptorMapping.txt /app/config/AIRR-iReceptorMapping.txt
 RUN chmod 644 /app/config/AIRR-iReceptorMapping.txt
 
-# change ownership of working directory to the non-root user
-RUN chown -R 1001 /app
-RUN chown -R 1001 /config
-RUN mkdir /appuser && chown -R 1001 /appuser
+# set file permissions
+RUN chgrp -R 0 /app
+RUN chgrp -R 0 /config
+RUN mkdir -p /root && chgrp -R 0 /root
 
-# switch to non-root user
+# change to non-root user - just for cleaness, infact the openshift platform
+# will run the docker as an arbitrary user beloning to the root group
 USER 1001
 
 # set working directory
-WORKDIR /appuser
+WORKDIR /root
 
