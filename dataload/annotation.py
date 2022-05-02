@@ -30,6 +30,27 @@ class Annotation(Parser):
         # for specific file types should explicitly set this to the correct
         # column.
         self.file_mapping = ""
+        # If we are talking annotations, it is helpful to have a cached mapping of
+        # key fields, since we access them so often (in particular with JSON records)
+        # Cached repo field names cache for specific fields.
+        self.repository_field_cache = dict() 
+
+    # Method to cache repository field names for AIRR field names.
+    def getAIRRRepositoryField(self, airr_field_name, map_class):
+        rep_field_name = None
+        # If the field is in the cache, use it. If not, calculate it and add
+        # it to the cache for next time.
+        if airr_field_name in self.repository_field_cache:
+            rep_field_name = self.repository_field_cache[airr_field_name]
+        else:
+            rep_field_name =  self.getAIRRMap().getMapping(airr_field_name,
+                                              self.getAIRRTag(),
+                                              self.getRepositoryTag(),
+                                              map_class)
+            self.repository_field_cache[airr_field_name] = rep_field_name
+
+        # Return the field.
+        return rep_field_name
 
     # Method to calculate the LINK ID for the repertoire that has the filename
     # provided. This should return one and only one record, so will fail if it
@@ -122,23 +143,16 @@ class Annotation(Parser):
 
 
     # Method to check and set annotation fields if they need to be...
-    # This handles a single JSON objecr and returns an updated object.
+    # This handles a single JSON object and returns an updated object.
     def checkIDFieldsJSON(self, json_object, repertoire_link_id):
         # Get the link field.
         repertoire_link_field = self.getRepertoireLinkIDField()
         # Get mapping of the ID fields we want to generate.
-        rep_id_field =  self.getAIRRMap().getMapping("repertoire_id",
-                                              self.getAIRRTag(),
-                                              self.getRepositoryTag(),
-                                              self.getAIRRMap().getRepertoireClass())
-        data_id_field =  self.getAIRRMap().getMapping("data_processing_id",
-                                              self.getAIRRTag(),
-                                              self.getRepositoryTag(),
-                                              self.getAIRRMap().getRepertoireClass())
-        sample_id_field =  self.getAIRRMap().getMapping("sample_processing_id",
-                                              self.getAIRRTag(),
-                                              self.getRepositoryTag(),
-                                              self.getAIRRMap().getRepertoireClass())
+        map_class = self.getAIRRMap().getRepertoireClass()
+        rep_id_field = self.getAIRRRepositoryField("repertoire_id", map_class)
+        data_id_field = self.getAIRRRepositoryField("data_processing_id", map_class)
+        sample_id_field = self.getAIRRRepositoryField("sample_processing_id", map_class)
+
         # We don't want to over write existing fields.
         if rep_id_field in json_object:
             print("ERROR: Can not load data with preset field %s"%(rep_id_field))
@@ -164,19 +178,19 @@ class Annotation(Parser):
         # them in the reperotire record, if not use the link ID as a default as 
         # we always need one...
         if not rep_id_field is None:
-            if rep_id_field in repertoires[0]:
+            if rep_id_field in repertoire:
                 json_object[rep_id_field] = repertoire[rep_id_field]
             else:
                 json_object[rep_id_field] = repertoire_link_id
 
         if not data_id_field is None:
-            if data_id_field in repertoires[0]:
+            if data_id_field in repertoire:
                 json_object[data_id_field] = repertoire[data_id_field]
             else:
                 json_object[data_id_field] = repertoire_link_id
 
         if not sample_id_field is None:
-            if sample_id_field in repertoires[0]:
+            if sample_id_field in repertoire:
                 json_object[sample_id_field] = repertoire[sample_id_field]
             else:
                 json_object[sample_id_field] = repertoire_link_id

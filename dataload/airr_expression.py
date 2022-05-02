@@ -145,8 +145,9 @@ class AIRR_Expression(Expression):
         if self.verbose():
             print("Info: Reading the Expression JSON array", flush=True)
         expression_array = json.load(file_handle)
+        expression_records = len(expression_array)
         if self.verbose():
-            print("Info: Read %d Expression objects"%(len(expression_array)), flush=True)
+            print("Info: Read %d Expression objects"%(expression_records), flush=True)
 
         # Get the fields to use for the created and updated dates
         ir_created_at = airr_map.getMapping("ir_created_at_expression", 
@@ -158,98 +159,135 @@ class AIRR_Expression(Expression):
 
         t_preamble_end = time.perf_counter()
         print("Info: Preamble time = %fs"% (t_preamble_end-t_start_full),flush=True)
+        print("Info: Processing %d records"% (chunk_size),flush=True)
 
         # Iterate over each element in the array 
         total_records = 0
-        block_size = 9000
         block_count = 0
         block_array = []
+        # Timing stuff
         t_start = time.perf_counter()
+        # Left in timing code (commented out) in case we want to go back and optimize.
+        #t_flatten = 0.0
+        #t_check = 0.0
+        #t_append = 0.0
+        #t_copy = 0.0
+
+        # Do some setup, including getting a repository key map cache so we don't have
+        # to look up repository keys all the time. This is a huge overhead without the
+        # cache.
+        airr_class = self.getAIRRMap().getExpressionClass()
+        repository_keymap = dict()
+
+        # Iterate over the expression records in the array.
         for airr_expression_dict in expression_array:
 
             # When we load into an iReceptor repository, we flatten out all AIRR
             # contructs into a simple, flat representation. ir_flatten performs this.
-            # We give it an empty dictionary, iterated over all of the items, and it
-            # gives us back a dictionary suitable for storing in our repository.
-            expression_dict = dict()
-            airr_class = self.getAIRRMap().getExpressionClass()
-            for key, value in airr_expression_dict.items():
-                try:
-                    self.ir_flatten(key, value, expression_dict, key, airr_class)
-                except TypeError as error:
-                    print("ERROR: %s"%(error))
-                    return False
+            # Unforuntately, when we have millions of records, it is too inefficient. 
+            # So we do some local caching of key look ups and we don't check the type
+            # of the data put into the repository. For GEX they are all strings except
+            # the `value` field.
+            #
+            # Create a copy of the orginal dictionary
+            #t_local_start = time.perf_counter()
+            original_dict = airr_expression_dict.copy()
+            #t_local_end = time.perf_counter()
+            #t_copy = t_copy + (t_local_end - t_local_start)
+            #t_local_start = time.perf_counter()
 
-            # Remap the column names. We need to remap because the columns may be in 
-            # a different order in the file than in the column mapping. We leave any
-            # non-mapped columns in the data frame as we don't want to discard data.
-            #add_dict = dict() 
-            #del_dict = dict()
-            #for expression_key, expression_value in expression_dict.items():
-            #    if expression_key in columnMapping:
-            #        mongo_column = columnMapping[expression_key]
-            #        if self.verbose() and total_records == 0:
-            #            print("Info: Mapping %s field in file: %s -> %s"
-            #                  %(self.getAnnotationTool(), expression_key, mongo_column))
-            #        # If they are different swap them.
-            #        if mongo_column != expression_key:
-            #            add_dict[mongo_column] = expression_value
-            #            del_dict[expression_key] = True
-            #    else:
-            #        if self.verbose() and total_records == 0:
-            #            print("Info: No mapping for %s column %s, storing as is"
-            #                  %(self.getAnnotationTool(), expression_key))
-#
-#            for add_key, add_value in add_dict.items():
-#                expression_dict[add_key] = add_value
-#                if self.verbose() and total_records == 0:
-#                    print("Info: Adding %s -> %s"%(add_key, add_value))
-#            for del_key in del_dict:
-#                del expression_dict[del_key]
-#                if self.verbose() and total_records == 0:
-#                    print("Info: Removing %s "%(del_key))
-            # Check to see which desired Expression mappings we don't have in the file...
-#            if self.verbose() and total_records == 0:
-#                for expression_column, mongo_column in columnMapping.items():
-#                    if not mongo_column in expression_dict:
-#                        print("Info: Missing data in input %s file for %s"
-#                              %(self.getAnnotationTool(), expression_column))
-            
+            # Iterate over the original dictionay.
+            for key, value in original_dict.items():
+                # If the key is a dictionary we know it is an CURIE with a label and ID.
+                # In GEX data this is the `property` but we generalize the dictionary
+                # handling in case this changes.
+                if isinstance(value, dict):
+                    # Get rid of the original key value
+                    airr_expression_dict.pop(key)
+                    # Check to see if the key is in the map and if so use it, if not
+                    # generate the repository key and add it to the repository keymap.
+                    if not key in repository_keymap:
+                        rep_key = self.fieldToRepository(key, airr_class)
+                        repository_keymap[key] = rep_key
+                    else:
+                        rep_key = repository_keymap[key]
+                    # Add the repository key and assign the original CURIE label
+                    airr_expression_dict[rep_key] = value['label']
+                    # Now we repeat for the ID of the CURIE. In the iReceptor repository
+                    # CURIEs are flattened and the ID field is the key with _id as a suffix
+                    key_id = key + '_id'
+                    # Check to see if the key is in the map and if so use it, if not
+                    # generate the repository key and add it to the repository keymap.
+                    if not key_id in repository_keymap:
+                        rep_key = self.fieldToRepository(key_id, airr_class)
+                        repository_keymap[key_id] = rep_key
+                    else:
+                        rep_key = repository_keymap[key_id]
+                    # Add the repository key for the CURIE id and assign the CURIE ID field.
+                    airr_expression_dict[rep_key] = value['id']
+                else:
+                    # If we get here we are simply mapping a key value pair.
+                    # Check to see if the key is in the map and if so use it, if not
+                    # generate the repository key and add it to the repository keymap.
+                    if not key in repository_keymap:
+                        rep_key = self.fieldToRepository(key, airr_class)
+                        repository_keymap[key] = rep_key
+                    else:
+                        rep_key = repository_keymap[key]
+                    # Replace the key with the repository and assign the value.
+                    # NOTE: We are not checking the value type to confirm that it is correct
+                    # according to the AIRR Spec, this is too expensive for GEX data and we
+                    # know all fields should be strings.
+                    airr_expression_dict.pop(key)
+                    airr_expression_dict[rep_key] = value
+
+            #t_local_end = time.perf_counter()
+            #t_flatten = t_flatten + (t_local_end - t_local_start)
 
             # Set the link field to link back to the repertoire object
-            expression_dict[rep_expression_link_field] = repertoire_link_id
+            airr_expression_dict[rep_expression_link_field] = repertoire_link_id
 
             # Set the relevant IDs for the record being inserted. It updates the dictionary
             # (passed by reference) and returns False if it fails. If it fails, don't
             # load any data.
-            if (not self.checkIDFieldsJSON(expression_dict, repertoire_link_id)):
+            #t_local_start = time.perf_counter()
+            if (not self.checkIDFieldsJSON(airr_expression_dict, repertoire_link_id)):
                 return False
-
-            # Check to make sure all AIRR required columns exist
-            #####if not self.checkAIRRRequired(df_chunk, airr_fields):
-            #####    return False
+            #t_local_end = time.perf_counter()
+            #t_check = t_check + (t_local_end - t_local_start)
 
             # Create the created and update values for this record. Note that
             # this means that each block of inserts will have the same date.
             now_str = self.getDateTimeNowUTC()
-            expression_dict[ir_created_at] = now_str
-            expression_dict[ir_updated_at] = now_str
-
-            # Transform the data frame so that it meets the repository type requirements
-            ####if not self.mapToRepositoryType(df_chunk,
-            ####                                airr_map.getRearrangementClass(),
-            ####                                airr_map.getIRRearrangementClass()):
-            ####    print("ERROR: Unable to map data to the repository")
-            ####    return False
+            airr_expression_dict[ir_created_at] = now_str
+            airr_expression_dict[ir_updated_at] = now_str
 
             # Insert a chunk of records into Mongo if we have a chunk ready.
-            block_array.append(expression_dict.copy())
+            #t_local_start = time.perf_counter()
+            block_array.append(airr_expression_dict.copy())
+            #t_local_end = time.perf_counter()
+            #t_append = t_append + (t_local_end - t_local_start)
+
+            # We want to insert into mongo in blocks of chunk_size records.
             block_count = block_count + 1
-            if block_count == block_size:
+            if block_count == chunk_size:
+                #t_insert_start = time.perf_counter()
                 self.repositoryInsertRecords(block_array)
+                #t_insert_end = time.perf_counter()
                 t_end = time.perf_counter()
-                print("Info: Inserted %d records, time = %f (%f records/s)"%
-                        (block_size, t_end-t_start, block_size/(t_end-t_start)),flush=True)
+
+                #print("Info: insert time = %f"% (t_insert_end-t_insert_start),flush=True)
+                #print("Info: flatten time = %f"% (t_flatten),flush=True)
+                #print("Info: check time = %f"% (t_check),flush=True)
+                #print("Info: append time = %f"% (t_append),flush=True)
+                #print("Info: copy time = %f"% (t_copy),flush=True)
+                print("Info: Inserted %d records, time = %f (%f records/s, %f percent)"%
+                        (chunk_size, t_end-t_start, chunk_size/(t_end-t_start),
+                        (total_records/expression_records)*100),flush=True)
+                #t_flatten = 0
+                #t_check = 0
+                #t_append = 0
+                #t_copy = 0
                 block_count = 0
                 block_array = []
                 t_start = time.perf_counter()
