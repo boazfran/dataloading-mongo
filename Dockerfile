@@ -50,6 +50,7 @@ RUN chmod 644 /app/config/AIRR-iReceptorMapping.txt
 RUN chgrp -R 0 /app
 RUN chgrp -R 0 /config
 RUN mkdir -p /scratch && chgrp -R 0 /scratch
+RUN chmod -R 775 /scratch 
 RUN mkdir -p /root && chgrp -R 0 /root
 
 # change to non-root user - just for cleaness, infact the openshift platform
@@ -57,7 +58,7 @@ RUN mkdir -p /root && chgrp -R 0 /root
 USER 1001
 
 # set working directory
-WORKDIR /root
+WORKDIR /scratch
 
 # prevent pod from exiting
 CMD tail -f /dev/null
