@@ -3,6 +3,9 @@ FROM registry.access.redhat.com/ubi8/ubi
 # switch for root user for the installations
 USER root
 
+# install updates
+RUN dnf check-update
+
 RUN yum -y update
 # install the python packages
 RUN INSTALL_PKGS="python36 python36-devel python3-virtualenv python3-setuptools python3-pip \
