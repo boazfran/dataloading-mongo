@@ -37,6 +37,10 @@ RUN curl -sS https://getcomposer.org/installer |php
 RUN mv composer.phar /usr/local/bin/composer
 RUN composer require mongodb/mongodb
 
+# uninstall unneeded libraries with vulnerabilities
+RUN python3.6 -m pip uninstall -y plotly
+RUN python3.6 -m pip uninstall -y pip
+
 # create working directory
 RUN mkdir --p /app/config
 
@@ -55,6 +59,10 @@ RUN chgrp -R 0 /config
 RUN mkdir -p /scratch && chgrp -R 0 /scratch
 RUN chmod -R 775 /scratch 
 RUN mkdir -p /root && chgrp -R 0 /root
+
+# set env variables
+ENV DB_HOST=ireceptor-database \
+    DB_DATABASE=ireceptor
 
 # change to non-root user - just for cleaness, infact the openshift platform
 # will run the docker as an arbitrary user beloning to the root group
