@@ -91,7 +91,7 @@ class AIRR_TSV(Rearrangement):
         # file becasue that is too expensive of an operation.
         # Validate header by trying to read the first record. If it throws
         # an error then we have a problem.
-        airr_reader = RearrangementReader(file_handle, validate=True, debug=True)
+        airr_reader = RearrangementReader(file_handle, validate=False, debug=True)
         airr_valid = True
         try:
             airr_iterator = iter(airr_reader)
